@@ -1,0 +1,53 @@
+#include "main.h"
+#include "mpu9250.h"
+#include "bmp280.h"
+#include "neo_m8n.h"
+#include "xbee.h"
+
+// CubeMX tarafından üretilen handle'lar
+extern I2C_HandleTypeDef  hi2c1;   // GY-91
+extern UART_HandleTypeDef huart1;  // NEO-M8N
+extern UART_HandleTypeDef huart2;  // XBee
+
+int main(void) {
+    HAL_Init();
+    SystemClock_Config();
+
+    MX_I2C1_Init();
+    MX_USART1_UART_Init();
+    MX_USART2_UART_Init();
+
+    // Sensör başlatma
+    while (MPU9250_Init(&hi2c1) != HAL_OK) { HAL_Delay(100); }
+    while (BMP280_Init(&hi2c1)  != HAL_OK) { HAL_Delay(100); }
+    GPS_Init(&huart1);
+
+    MPU9250_Data imu = {0};
+    BMP280_Data  bmp = {0};
+    GPS_Data     gps = {0};
+
+    uint32_t last_tick = 0;
+
+    while (1) {
+        // GPS okuma blocking olduğu için döngü başında
+        GPS_Read(&huart1, &gps);
+
+        // 1Hz kontrolü
+        if (HAL_GetTick() - last_tick >= 1000) {
+            last_tick = HAL_GetTick();
+
+            MPU9250_ReadAll(&hi2c1, &imu);
+            BMP280_Read(&hi2c1, &bmp);
+            XBee_SendPacket(&huart2, &imu, &bmp, &gps);
+        }
+    }
+}
+```
+
+---
+
+## XCTU'da Görmek İçin
+
+XCTU'da **Console** sekmesini açın, baud rate'i XBee konfigürasyonunuzla eşleştirin. Her saniye şu formatta paket gelecek:
+```
+$AX:0.01,AY:-0.02,AZ:1.00,GX:0.1,GY:-0.2,GZ:0.0,T:25.3,P:1012.4,ALT:8.2,LAT:39.92345,LON:32.85412,FIX:1*

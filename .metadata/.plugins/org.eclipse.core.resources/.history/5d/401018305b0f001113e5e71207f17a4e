@@ -1,0 +1,83 @@
+#include "neo_m8n.h"
+
+static char gps_buf[GPS_BUF_SIZE];
+
+// NMEA checksum doğrulama
+static uint8_t NMEA_Checksum(char *sentence) {
+    uint8_t cs = 0;
+    for (int i = 1; sentence[i] != '*' && sentence[i] != '\0'; i++)
+        cs ^= (uint8_t)sentence[i];
+    return cs;
+}
+
+// $GNGGA veya $GPGGA parse
+static uint8_t Parse_GGA(char *line, GPS_Data *data) {
+    if (strncmp(line, "$GNGGA", 6) != 0 && strncmp(line, "$GPGGA", 6) != 0)
+        return 0;
+
+    char *tok = strtok(line, ",");
+    int field = 0;
+    float raw_lat = 0, raw_lon = 0;
+    char lat_dir = 'N', lon_dir = 'E';
+
+    while (tok != NULL) {
+        switch (field) {
+            case 1: strncpy(data->time, tok, 9); break;
+            case 2: raw_lat = atof(tok); break;
+            case 3: lat_dir = tok[0]; break;
+            case 4: raw_lon = atof(tok); break;
+            case 5: lon_dir = tok[0]; break;
+            case 6: data->fix = atoi(tok); break;
+            case 7: data->satellites = atoi(tok); break;
+            case 9: data->altitude = atof(tok); break;
+        }
+        field++;
+        tok = strtok(NULL, ",");
+    }
+
+    // DDMM.MMMM → decimal derece
+    int lat_deg = (int)(raw_lat / 100);
+    data->latitude  = lat_deg + (raw_lat - lat_deg * 100) / 60.0f;
+    if (lat_dir == 'S') data->latitude  *= -1;
+
+    int lon_deg = (int)(raw_lon / 100);
+    data->longitude = lon_deg + (raw_lon - lon_deg * 100) / 60.0f;
+    if (lon_dir == 'W') data->longitude *= -1;
+
+    return 1;
+}
+
+HAL_StatusTypeDef GPS_Init(UART_HandleTypeDef *huart) {
+    // NEO-M8N varsayılan 9600 baud, CubeMX'te ayarlanmalı
+    (void)huart;
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef GPS_Read(UART_HandleTypeDef *huart, GPS_Data *data) {
+    uint8_t c;
+    int idx = 0;
+    uint32_t start = HAL_GetTick();
+
+    // '$' başlangıcını bul
+    while (HAL_GetTick() - start < GPS_UART_TIMEOUT) {
+        if (HAL_UART_Receive(huart, &c, 1, 10) == HAL_OK) {
+            if (c == '$') {
+                gps_buf[idx++] = c;
+                break;
+            }
+        }
+    }
+    if (idx == 0) return HAL_TIMEOUT;
+
+    // Satır sonuna kadar oku
+    while (idx < GPS_BUF_SIZE - 1 && HAL_GetTick() - start < GPS_UART_TIMEOUT) {
+        if (HAL_UART_Receive(huart, &c, 1, 10) == HAL_OK) {
+            if (c == '\n') break;
+            gps_buf[idx++] = c;
+        }
+    }
+    gps_buf[idx] = '\0';
+
+    if (Parse_GGA(gps_buf, data)) return HAL_OK;
+    return HAL_ERROR;
+}

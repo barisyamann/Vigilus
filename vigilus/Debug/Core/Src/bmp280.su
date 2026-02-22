@@ -1,0 +1,5 @@
+../Core/Src/bmp280.c:6:26:ReadRegs	32	static
+../Core/Src/bmp280.c:12:26:WriteReg	32	static
+../Core/Src/bmp280.c:17:13:LoadCalib	40	static
+../Core/Src/bmp280.c:36:19:BMP280_Init	16	static
+../Core/Src/bmp280.c:44:19:BMP280_Read	352	static
